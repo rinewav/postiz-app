@@ -7,7 +7,7 @@ import {
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { Integration } from '@prisma/client';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
-import { YoutubeSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/youtube.settings.dto';
+import { YoutubeZernioSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/youtube.zernio.settings.dto';
 import {
   BadBody,
   SocialAbstract,
@@ -15,6 +15,7 @@ import {
   stripQuery,
 } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
 import { setHeartbeatDetails } from '@gitroom/nestjs-libraries/temporal/temporal.heartbeat';
 import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import {
@@ -72,6 +73,11 @@ type ZernioPendingData = {
   visibility: 'public' | 'private' | 'unlisted';
   madeForKids: boolean;
   tags: string[];
+  // optional: absent in posts that were scheduled before these settings existed
+  categoryId?: string;
+  playlistId?: string;
+  containsSyntheticMedia?: boolean;
+  firstComment?: string;
   video: ZernioMediaUpload;
   thumbnail?: ZernioMediaUpload;
   zernioPostId?: string;
@@ -135,7 +141,7 @@ export class YoutubeZernioProvider
   name = 'YouTube (Zernio)';
   toolTip = 'Publishes to YouTube through the Zernio API (ZERNIO_API_KEY)';
   isBetweenSteps = true;
-  dto = YoutubeSettingsDto;
+  dto = YoutubeZernioSettingsDto;
   scopes = [] as string[];
   editor = 'normal' as const;
 
@@ -305,6 +311,20 @@ export class YoutubeZernioProvider
     };
   }
 
+  // Playlist picker of the post settings (called through /integrations/function)
+  @Tool({ description: 'List of YouTube playlists', dataSchema: [] })
+  async playlists(
+    token: string,
+    data: any,
+    internalId: string
+  ): Promise<{ id: string; name: string }[]> {
+    const playlists = await this.zernio().listYoutubePlaylists(internalId);
+    return playlists.map((p) => ({
+      id: p.id,
+      name: p.privacy ? `${p.title} (${p.privacy})` : p.title,
+    }));
+  }
+
   // ---------------------------------------------------------------------------
   // Publishing. The Postiz workflow calls postPending at the scheduled time:
   //   postPending    - validate + presign the uploads (nothing irreversible)
@@ -345,7 +365,8 @@ export class YoutubeZernioProvider
     integration: Integration
   ): Promise<PostResponse[]> {
     const [firstPost] = postDetails;
-    const settings: YoutubeSettingsDto = firstPost?.settings || ({} as any);
+    const settings: YoutubeZernioSettingsDto =
+      firstPost?.settings || ({} as any);
 
     const video = mediaUpload(firstPost?.media?.[0]?.path || '', VIDEO_TYPES);
     if (!video) {
@@ -379,6 +400,14 @@ export class YoutubeZernioProvider
         visibility: (settings.type as any) || 'private',
         madeForKids: settings.selfDeclaredMadeForKids === 'yes',
         tags: (settings.tags || []).map((t) => t.label).filter(Boolean),
+        ...(settings.categoryId ? { categoryId: settings.categoryId } : {}),
+        ...(settings.playlistId ? { playlistId: settings.playlistId } : {}),
+        ...(settings.containsSyntheticMedia
+          ? { containsSyntheticMedia: true }
+          : {}),
+        ...(settings.firstComment?.trim()
+          ? { firstComment: settings.firstComment.trim() }
+          : {}),
         video: await this.presign(video),
         ...(thumbnail ? { thumbnail: await this.presign(thumbnail) } : {}),
         retries: 0,
@@ -576,6 +605,18 @@ export class YoutubeZernioProvider
                 title: pendingData.title,
                 visibility: pendingData.visibility,
                 madeForKids: pendingData.madeForKids,
+                ...(pendingData.categoryId
+                  ? { categoryId: pendingData.categoryId }
+                  : {}),
+                ...(pendingData.playlistId
+                  ? { playlistId: pendingData.playlistId }
+                  : {}),
+                ...(pendingData.containsSyntheticMedia
+                  ? { containsSyntheticMedia: true }
+                  : {}),
+                ...(pendingData.firstComment
+                  ? { firstComment: pendingData.firstComment }
+                  : {}),
               },
             },
           ],
