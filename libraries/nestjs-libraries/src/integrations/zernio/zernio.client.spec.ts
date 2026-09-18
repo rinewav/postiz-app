@@ -256,4 +256,56 @@ describe('ZernioClient', () => {
       expect(calls[0].url).toBe('https://zernio.test/api/v1/posts/z1/retry');
     });
   });
+
+  describe('youtube helpers and analytics', () => {
+    it('lists youtube playlists of an account', async () => {
+      const { fn, calls } = mockFetch([
+        { status: 200, body: { playlists: [{ id: 'PL1', title: 'A' }] } },
+      ]);
+      const res = await client(fn).listYoutubePlaylists('acc 1');
+      expect(calls[0].url).toBe(
+        'https://zernio.test/api/v1/accounts/acc%201/youtube-playlists'
+      );
+      expect(res[0].id).toBe('PL1');
+    });
+
+    it('requests channel insights as a time series', async () => {
+      const { fn, calls } = mockFetch([{ status: 200, body: { metrics: {} } }]);
+      await client(fn).getYoutubeChannelInsights({
+        accountId: 'acc-1',
+        since: '2026-09-01',
+        until: '2026-09-10',
+        metrics: ['views', 'likes'],
+      });
+      const url = new URL(calls[0].url);
+      expect(url.pathname).toBe('/api/v1/analytics/youtube/channel-insights');
+      expect(url.searchParams.get('metrics')).toBe('views,likes');
+      expect(url.searchParams.get('metricType')).toBe('time_series');
+      expect(url.searchParams.get('accountId')).toBe('acc-1');
+    });
+
+    it('reads single post analytics, including 202 syncing', async () => {
+      const { fn, calls } = mockFetch([
+        { status: 202, body: { syncStatus: 'pending' } },
+      ]);
+      const res = await client(fn).getPostAnalytics('z1');
+      expect(new URL(calls[0].url).searchParams.get('postId')).toBe('z1');
+      expect(res.syncStatus).toBe('pending');
+    });
+
+    it('surfaces 412 (missing yt-analytics scope)', async () => {
+      const { fn } = mockFetch([
+        { status: 412, body: { error: 'Reauthorize', reauthorizeUrl: 'x' } },
+      ]);
+      const err = await client(fn)
+        .getYoutubeChannelInsights({
+          accountId: 'a',
+          since: '2026-09-01',
+          until: '2026-09-02',
+          metrics: ['views'],
+        })
+        .catch((e) => e);
+      expect(err.status).toBe(412);
+    });
+  });
 });

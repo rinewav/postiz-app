@@ -5,6 +5,9 @@
 //   GET  /api/v1/connect/:platform    POST /api/v1/media/presign
 //   POST /api/v1/posts                GET  /api/v1/posts/:id
 //   POST /api/v1/posts/:id/retry
+//   GET  /api/v1/accounts/:id/youtube-playlists
+//   GET  /api/v1/analytics/youtube/channel-insights
+//   GET  /api/v1/analytics (single post via ?postId=, or list)
 // plus the presigned upload target (PUT /upload/:key), a fake OAuth page
 // (/mock-oauth) and an inspection endpoint (GET /__mock/state).
 //
@@ -227,6 +230,64 @@ const server = createServer(async (req, res) => {
     if (requestId) state.requestIds[requestId] = post._id;
     schedulePublish(post);
     return json(res, 201, { message: 'Post created', post });
+  }
+  const playlists = path.match(/^\/api\/v1\/accounts\/([^/]+)\/youtube-playlists$/);
+  if (req.method === 'GET' && playlists) {
+    if (!accounts.find((a) => a._id === playlists[1])) {
+      return json(res, 404, { error: 'Account not found' });
+    }
+    return json(res, 200, {
+      playlists: [
+        { id: 'PLmock0001', title: 'Mock Playlist', privacy: 'public', itemCount: 3 },
+        { id: 'PLmock0002', title: 'Unlisted Mixes', privacy: 'unlisted', itemCount: 1 },
+      ],
+      defaultPlaylistId: null,
+    });
+  }
+  if (req.method === 'GET' && path === '/api/v1/analytics/youtube/channel-insights') {
+    const since = new Date(url.searchParams.get('since'));
+    const until = new Date(url.searchParams.get('until'));
+    const days = Math.round((until - since) / 86400000);
+    if (!(days >= 0) || days > 89) {
+      return json(res, 400, { error: 'Max 89 days' });
+    }
+    const metrics = {};
+    for (const [i, m] of (url.searchParams.get('metrics') || 'views').split(',').entries()) {
+      const values = Array.from({ length: days + 1 }, (_, d) => ({
+        date: new Date(since.getTime() + d * 86400000).toISOString().slice(0, 10),
+        value: (i + 1) * 10 + d,
+      }));
+      metrics[m] = { total: values.reduce((a, v) => a + v.value, 0), values };
+    }
+    return json(res, 200, {
+      success: true,
+      accountId: url.searchParams.get('accountId'),
+      platform: 'youtube',
+      dateRange: { since: url.searchParams.get('since'), until: url.searchParams.get('until') },
+      metricType: url.searchParams.get('metricType') || 'total_value',
+      metrics,
+    });
+  }
+  if (req.method === 'GET' && path === '/api/v1/analytics') {
+    const toAnalytics = (post) => ({
+      _id: post._id,
+      postId: post._id,
+      platform: 'youtube',
+      platformPostUrl: post.platforms[0].platformPostUrl || null,
+      status: post.status,
+      syncStatus: 'synced',
+      analytics: { impressions: 0, reach: 0, likes: 7, comments: 2, shares: 1, views: 123 },
+    });
+    const postId = url.searchParams.get('postId');
+    if (postId) {
+      const post = state.posts[postId];
+      return post ? json(res, 200, toAnalytics(post)) : json(res, 404, { error: 'Post not found' });
+    }
+    return json(res, 200, {
+      posts: Object.values(state.posts).map(toAnalytics),
+      pagination: { page: 1, limit: 50, total: Object.keys(state.posts).length },
+      hasAnalyticsAccess: true,
+    });
   }
   const getPost = path.match(/^\/api\/v1\/posts\/([^/]+)$/);
   if (req.method === 'GET' && getPost) {
