@@ -1,0 +1,22 @@
+# Local overrides for the upstream docker-compose.yaml (merged automatically by
+# `docker compose up -d`). Keeps every secret in `.env` (gitignored) instead of
+# editing the upstream compose file, so `git rebase upstream/main` stays
+# conflict-free. See `.env.docker.example` and README.zernio.md.
+services:
+  postiz:
+    environment:
+      MAIN_URL: ${POSTIZ_URL:-http://localhost:4007}
+      FRONTEND_URL: ${POSTIZ_URL:-http://localhost:4007}
+      NEXT_PUBLIC_BACKEND_URL: ${POSTIZ_URL:-http://localhost:4007}/api
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      DISABLE_REGISTRATION: ${DISABLE_REGISTRATION:-false}
+
+      # X (official API, existing Postiz provider)
+      X_API_KEY: ${X_API_KEY:-}
+      X_API_SECRET: ${X_API_SECRET:-}
+
+      # Instagram (official Meta API, existing Postiz providers)
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
+      INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
