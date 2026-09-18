@@ -29,8 +29,11 @@ OAuth 接続とアップロードは Zernio 側で行われます。
 | 新規 | `libraries/nestjs-libraries/src/integrations/social/youtube.zernio.provider.ts` | `youtube-zernio` provider（接続・投稿・状態確認・retry） |
 | 新規 | `apps/frontend/public/icons/platforms/youtube-zernio.png` | チャンネルアイコン（YouTube アイコンの複製） |
 | 1行追加 | `libraries/nestjs-libraries/src/integrations/integration.manager.ts` | provider 登録（import + リスト 1 行） |
-| 2行追加 | `libraries/nestjs-libraries/src/dtos/posts/providers-settings/all.providers.settings.ts` | 設定 DTO の登録（既存 `YoutubeSettingsDto` を再利用） |
-| 4行追加 | `apps/frontend/src/components/new-launch/providers/show.all.providers.tsx` | 投稿画面に既存 YouTube 設定 UI を割り当て |
+| 3行追加 | `libraries/nestjs-libraries/src/dtos/posts/providers-settings/all.providers.settings.ts` | 設定 DTO の登録（`YoutubeSettingsDto` を継承した `YoutubeZernioSettingsDto`） |
+| 新規 | `libraries/nestjs-libraries/src/dtos/posts/providers-settings/youtube.zernio.settings.dto.ts` | category / playlist / AI 生成開示 / first comment を追加した設定 DTO |
+| 5行追加 | `apps/frontend/src/components/new-launch/providers/show.all.providers.tsx` | 投稿画面に YouTube (Zernio) 設定 UI を割り当て |
+| 新規 | `apps/frontend/src/components/new-launch/providers/youtube-zernio/*.tsx` | 設定 UI（YouTube と同じ項目 + category / playlist / AI 生成開示 / first comment） |
+| 4行追加 | `apps/frontend/src/components/platform-analytics/platform.analytics.tsx` | Analytics 画面の対象チャンネル一覧に `youtube-zernio` を追加 |
 | 1行追加 | `apps/frontend/src/components/new-launch/providers/continue-provider/list.tsx` | 接続時のチャンネル選択に既存 YouTube 画面を割り当て |
 | 3行追加 | `.dockerignore` | `.env` を build context に入れない（secret 混入防止） |
 | 新規 | `docker-compose.override.yml`, `.env.docker.example` | 自前 image の build と環境変数（upstream の compose は無変更） |
@@ -187,6 +190,10 @@ Zernio ダッシュボードで既に接続済みのチャンネルも同じ選�
    - **Type**: Public / Private / Unlisted
    - **Made for kids**
    - **Tags**（合計 500 文字まで）
+   - **Category**（未選択なら People & Blogs）
+   - **Playlist**（Zernio 経由でチャンネルの再生リストを取得）
+   - **Contains AI-generated / altered content**（YouTube の合成コンテンツ開示）
+   - **First comment**（公開直後に投稿される最初のコメント、10,000 文字まで）
    - **Thumbnail**（任意）
 5. 日時（ブラウザ / Postiz 設定のタイムゾーンで表示）を選んで **Add to calendar**
 
@@ -238,12 +245,13 @@ upstream 由来の `stale.yml` / `staging-conflicts.yml`（10〜30 分ごとの 
 
 ### conflict しやすい箇所
 
-パッチは既存ファイルに計 11 行しか触れていません。conflict するのは upstream が同じ行の
+パッチは既存ファイルに計 19 行しか触れていません。conflict するのは upstream が同じ行の
 周辺を変更した場合だけです。
 
 - `integration.manager.ts`: `YoutubeProvider` の import 直後 / `new YoutubeProvider(),` の直後
 - `all.providers.settings.ts`: `'youtube'` の型・配列要素の直後
-- `show.all.providers.tsx`: `identifier: 'youtube'` ブロックの直後
+- `show.all.providers.tsx`: YouTube provider の import 直後 / `identifier: 'youtube'` ブロックの直後
+- `platform.analytics.tsx`: 各 allowlist の `'youtube'` の直後（upstream が analytics 対応チャンネルを増減すると衝突しやすい）
 - `continue-provider/list.tsx`: `youtube: YoutubeContinue,` の直後
 - `.dockerignore`: 末尾
 
@@ -260,8 +268,8 @@ pnpm install --frozen-lockfile
 pnpm exec jest -c libraries/nestjs-libraries/src/integrations/zernio/jest.config.js
 ```
 
-- unit: API client（認証ヘッダ、エラー、key のマスク、レスポンス解析、冪等性、409）、provider（検証、接続、投稿フロー、retry、失敗）
-- integration: `tools/zernio-mock/server.mjs` を起動し、実 HTTP で account 取得 → media upload → post 作成 → 公開 / retry / 失敗
+- unit: API client（認証ヘッダ、エラー、key のマスク、レスポンス解析、冪等性、409）、provider（検証、接続、投稿フロー、追加設定、playlist、analytics、retry、失敗）
+- integration: `tools/zernio-mock/server.mjs` を起動し、実 HTTP で account 取得 → media upload → post 作成（追加設定込み）→ 公開 / retry / 失敗、playlist 一覧、チャンネル / 投稿 analytics
 
 Docker 上で UI から試す（実 YouTube に投稿しない）:
 
@@ -309,10 +317,13 @@ mock はタイトルに `[fail-once]`（1 回失敗→retry で成功）、`[fai
   `publishAt`（事前アップロード）は使わないため、大きな動画は公開時刻からアップロード・処理時間分
   遅れて公開されます
 - 状態確認は upstream workflow の上限（20 秒 × 90 回 ≒ 30 分）まで。超えると「未確認」エラー扱い
-- 設定 UI は既存 YouTube のもの（Title / Type / Made for kids / Tags / Thumbnail）を再利用。
-  Zernio API が対応している playlist / category / AI 生成開示 / first comment は未対応
+- category の選択肢は Zernio docs に記載の ID のみ（YouTube 側で地域により選べない ID があれば Zernio がエラーを返す）
 - `notifySubscribers` は Zernio API に存在しないため未対応
 - Shorts は YouTube が自動判定（3 分以下かつ縦長）。専用フラグなし
-- analytics 未実装
+- analytics: Postiz の Analytics 画面（チャンネル単位: Views / Estimated Minutes Watched / Average View Duration /
+  Subscribers Gained / Subscribers Lost）と投稿の Statistics（Views / Likes / Comments / Shares）に表示。
+  YouTube 側のデータは 2〜3 日遅れ、チャンネル集計は最大 89 日（90 日表示は 89 日に丸める）。
+  チャンネルに `yt-analytics.readonly` 権限が無いと Zernio が 412 を返し、データなし表示になる（再接続で解消）。
+  旧プランの Zernio アカウントは Analytics add-on が必要（402）。従量制プランは追加費用なし
 - Postiz で公開済み投稿を削除しても YouTube 側の動画は削除されない
 - `ZERNIO_API_KEY` はインスタンス全体で 1 つ（全 organization が同じ Zernio アカウントを使う）
