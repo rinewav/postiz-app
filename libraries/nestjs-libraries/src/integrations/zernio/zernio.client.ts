@@ -102,6 +102,13 @@ export interface ZernioPresignResponse {
   expiresIn?: number;
 }
 
+export interface ZernioPlaylist {
+  id: string;
+  title: string;
+  privacy?: 'public' | 'private' | 'unlisted';
+  itemCount?: number;
+}
+
 export class ZernioApiError extends Error {
   constructor(
     message: string,
@@ -374,6 +381,16 @@ export class ZernioClient {
       `/v1/posts/${encodeURIComponent(postId)}`
     );
     return data.post;
+  }
+
+  // --- YouTube helpers ------------------------------------------------------
+
+  async listYoutubePlaylists(accountId: string): Promise<ZernioPlaylist[]> {
+    const { data } = await this.request<{ playlists: ZernioPlaylist[] }>(
+      'GET',
+      `/v1/accounts/${encodeURIComponent(accountId)}/youtube-playlists`
+    );
+    return data.playlists || [];
   }
 
   async retryPost(postId: string): Promise<ZernioPost | undefined> {

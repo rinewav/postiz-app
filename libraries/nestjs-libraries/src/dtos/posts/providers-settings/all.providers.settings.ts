@@ -1,6 +1,7 @@
 import { RedditSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/reddit.dto';
 import { PinterestSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/pinterest.dto';
 import { YoutubeSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/youtube.settings.dto';
+import { YoutubeZernioSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/youtube.zernio.settings.dto';
 import { TikTokDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/tiktok.dto';
 import { XDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/x.dto';
 import { LemmySettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/lemmy.dto';
@@ -31,7 +32,7 @@ export type AllProvidersSettings =
   | ProviderExtension<'reddit', RedditSettingsDto>
   | ProviderExtension<'lemmy', LemmySettingsDto>
   | ProviderExtension<'youtube', YoutubeSettingsDto>
-  | ProviderExtension<'youtube-zernio', YoutubeSettingsDto>
+  | ProviderExtension<'youtube-zernio', YoutubeZernioSettingsDto>
   | ProviderExtension<'pinterest', PinterestSettingsDto>
   | ProviderExtension<'dribbble', DribbbleDto>
   | ProviderExtension<'tiktok', TikTokDto>
@@ -72,7 +73,7 @@ export const allProviders = (setEmpty?: any) => {
     { value: RedditSettingsDto, name: 'reddit' },
     { value: LemmySettingsDto, name: 'lemmy' },
     { value: YoutubeSettingsDto, name: 'youtube' },
-    { value: YoutubeSettingsDto, name: 'youtube-zernio' },
+    { value: YoutubeZernioSettingsDto, name: 'youtube-zernio' },
     { value: PinterestSettingsDto, name: 'pinterest' },
     { value: DribbbleDto, name: 'dribbble' },
     { value: TikTokDto, name: 'tiktok' },
