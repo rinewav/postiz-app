@@ -1,4 +1,5 @@
 import {
+  AnalyticsData,
   AuthTokenDetails,
   PendingCheckResponse,
   PostDetails,
@@ -326,6 +327,131 @@ export class YoutubeZernioProvider
   }
 
   // ---------------------------------------------------------------------------
+  // Analytics, through Zernio's YouTube Analytics endpoints. Errors (missing
+  // yt-analytics scope = 412, legacy plan without analytics = 402, ...) return
+  // no data, like the other providers.
+  // ---------------------------------------------------------------------------
+
+  async analytics(
+    id: string,
+    accessToken: string,
+    date: number
+  ): Promise<AnalyticsData[]> {
+    // Zernio serves at most 89 days of channel insights
+    const days = Math.min(Math.max(Number(date) || 7, 1), 89);
+    try {
+      const insights = await this.zernio().getYoutubeChannelInsights({
+        accountId: id,
+        since: dayjs().subtract(days, 'day').format('YYYY-MM-DD'),
+        until: dayjs().format('YYYY-MM-DD'),
+        metrics: [
+          'views',
+          'estimatedMinutesWatched',
+          'averageViewDuration',
+          'subscribersGained',
+          'subscribersLost',
+        ],
+      });
+
+      const labels: Array<[string, string, boolean]> = [
+        ['views', 'Views', false],
+        ['estimatedMinutesWatched', 'Estimated Minutes Watched', false],
+        ['averageViewDuration', 'Average View Duration', true],
+        ['subscribersGained', 'Subscribers Gained', false],
+        ['subscribersLost', 'Subscribers Lost', false],
+      ];
+
+      return labels
+        .filter(([key]) => insights.metrics?.[key]?.values?.length)
+        .map(([key, label, average]) => ({
+          label,
+          percentageChange: 0,
+          ...(average ? { average: true } : {}),
+          // numbers, like the YouTube provider: the analytics page sums them
+          data: insights.metrics[key].values!.map((v) => ({
+            total: Number(v.value) as any,
+            date: v.date,
+          })),
+        }));
+    } catch (err) {
+      console.error('YouTube (Zernio) analytics failed:', (err as any)?.message);
+      return [];
+    }
+  }
+
+  // Posts published by this provider store the Zernio post id as the release
+  // id. Older ones stored the YouTube video id: resolve it through the
+  // account's Zernio posts.
+  private async resolveZernioPostId(
+    accountId: string,
+    releaseId: string
+  ): Promise<string | undefined> {
+    if (/^[a-f0-9]{24}$/i.test(releaseId)) {
+      return releaseId;
+    }
+    // Zernio keeps at most 366 days of post analytics; walk its pages
+    const fromDate = dayjs().subtract(365, 'day').format('YYYY-MM-DD');
+    for (let page = 1; page <= 20; page++) {
+      const posts = await this.zernio().listPostAnalytics({
+        accountId,
+        platform: 'youtube',
+        fromDate,
+        limit: 100,
+        page,
+      });
+      const found = posts.find((p) => p.platformPostUrl?.includes(releaseId));
+      if (found?._id) {
+        return found._id;
+      }
+      if (posts.length < 100) {
+        break;
+      }
+    }
+    console.log(`YouTube (Zernio): no Zernio post found for video ${releaseId}`);
+    return undefined;
+  }
+
+  async postAnalytics(
+    integrationId: string,
+    accessToken: string,
+    postId: string,
+    date: number
+  ): Promise<AnalyticsData[]> {
+    const today = dayjs().format('YYYY-MM-DD');
+    try {
+      const zernioPostId = await this.resolveZernioPostId(integrationId, postId);
+      if (!zernioPostId) {
+        return [];
+      }
+      const result = await this.zernio().getPostAnalytics(zernioPostId);
+      if (result.syncStatus === 'pending' || !result.analytics) {
+        return [];
+      }
+      const { views, likes, comments, shares } = result.analytics;
+      return (
+        [
+          ['Views', views],
+          ['Likes', likes],
+          ['Comments', comments],
+          ['Shares', shares],
+        ] as Array<[string, number | undefined]>
+      )
+        .filter(([, value]) => value !== undefined && value !== null)
+        .map(([label, value]) => ({
+          label,
+          percentageChange: 0,
+          data: [{ total: String(value), date: today }],
+        }));
+    } catch (err) {
+      console.error(
+        'YouTube (Zernio) post analytics failed:',
+        (err as any)?.message
+      );
+      return [];
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Publishing. The Postiz workflow calls postPending at the scheduled time:
   //   postPending    - validate + presign the uploads (nothing irreversible)
   //   checkPostStatus - read-only: 'ready' until the Zernio post exists, then
@@ -458,9 +584,11 @@ export class YoutubeZernioProvider
 
     if (target?.status === 'published' || post.status === 'published') {
       const videoId = target?.platformPostId || '';
+      // the Zernio post id is kept as the release id: Zernio's analytics are
+      // looked up by it, the YouTube link is the release URL
       return {
         status: 'completed',
-        postId: videoId || pendingData.zernioPostId,
+        postId: pendingData.zernioPostId,
         releaseURL:
           target?.platformPostUrl ||
           (videoId ? `https://www.youtube.com/watch?v=${videoId}` : ''),
