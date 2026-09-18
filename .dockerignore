@@ -21,3 +21,6 @@ dist
 .git
 .github
 reports
+# Local secrets must never be sent to the docker build context
+.env
+.env.*

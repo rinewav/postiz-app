@@ -4,6 +4,14 @@
 # conflict-free. See `.env.docker.example` and README.zernio.md.
 services:
   postiz:
+    # Built from this fork (upstream + the YouTube (Zernio) integration)
+    # instead of ghcr.io/gitroomhq/postiz-app:latest.
+    image: postiz-zernio:local
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        NEXT_PUBLIC_VERSION: ${POSTIZ_VERSION:-zernio}
     environment:
       MAIN_URL: ${POSTIZ_URL:-http://localhost:4007}
       FRONTEND_URL: ${POSTIZ_URL:-http://localhost:4007}
@@ -20,3 +28,12 @@ services:
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
       INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
+
+      # YouTube via Zernio (youtube-zernio provider). The key never goes to the DB.
+      ZERNIO_API_KEY: ${ZERNIO_API_KEY:-}
+      ZERNIO_PROFILE_ID: ${ZERNIO_PROFILE_ID:-}
+      ZERNIO_API_URL: ${ZERNIO_API_URL:-}
+      ZERNIO_MAX_RETRIES: ${ZERNIO_MAX_RETRIES:-2}
+      # e.g. "youtube" to hide the Google-Cloud-based YouTube provider
+      HIDDEN_PROVIDERS: ${HIDDEN_PROVIDERS:-}
+
