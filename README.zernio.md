@@ -296,6 +296,8 @@ mock はタイトルに `[fail-once]`（1 回失敗→retry で成功）、`[fai
 | 「Video too long」系 | 未確認チャンネルの 15 分制限。youtube.com/verify |
 | サムネイルが反映されない | チャンネル未確認、2MB 超、または Shorts |
 | `Set JWT_SECRET in .env` で compose が止まる | `.env` がない / `JWT_SECRET` 空 |
+| `docker compose ps` で postiz が `unhealthy`、画面が 502 | 起動直後に backend / orchestrator が応答しないまま止まることがある（検証では cold start 31 回中 4 回、upstream image では 18 回中 0 回。原因は未特定）。`docker compose restart postiz` で復旧 |
+| temporal が `Exited (1)`（`no usable database connection`） | upstream compose は DB 起動を待たないため。override で `restart: on-failure` と healthcheck を追加済み。postiz は temporal が準備完了してから起動する |
 
 ---
 
