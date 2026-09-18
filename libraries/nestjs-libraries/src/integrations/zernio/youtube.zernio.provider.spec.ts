@@ -46,6 +46,35 @@ const fakeClient = () => {
       },
     ]),
     getConnectUrl: jest.fn(async () => 'https://zernio.test/oauth'),
+    listYoutubePlaylists: jest.fn(async () => [
+      { id: 'PL1', title: 'Songs', privacy: 'public' },
+      { id: 'PL2', title: 'Drafts' },
+    ]),
+    getYoutubeChannelInsights: jest.fn(async () => ({
+      metrics: {
+        views: {
+          total: 30,
+          values: [
+            { date: '2026-09-01', value: 10 },
+            { date: '2026-09-02', value: 20 },
+          ],
+        },
+        averageViewDuration: {
+          total: 42,
+          values: [{ date: '2026-09-01', value: 42 }],
+        },
+      },
+    })),
+    getPostAnalytics: jest.fn(async () => ({
+      syncStatus: 'synced',
+      analytics: { views: 123, likes: 7, comments: 2, shares: 1 },
+    })),
+    listPostAnalytics: jest.fn(async () => [
+      {
+        _id: 'abcdefabcdefabcdefabcdef',
+        platformPostUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      },
+    ]),
   };
 };
 
@@ -280,9 +309,54 @@ describe('YoutubeZernioProvider', () => {
         await provider.checkPostStatus('profile-1', pd, integration)
       ).toEqual({
         status: 'completed',
-        postId: 'dQw4w9WgXcQ',
+        // the Zernio post id, so post analytics can be looked up later
+        postId: 'zpost-1',
         releaseURL: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
       });
+    });
+
+    it('sends the Zernio-only settings when they are set', async () => {
+      const [pending] = await provider.postPending(
+        'acc-1',
+        'profile-1',
+        postDetails({
+          categoryId: '10',
+          playlistId: 'PL1',
+          containsSyntheticMedia: true,
+          firstComment: '  Thanks for watching!  ',
+        }),
+        integration
+      );
+      await provider.finalizePost('profile-1', pending.pendingData, integration);
+      const [body] = client.createPost.mock.calls[0] as any;
+      expect(body.platforms[0].platformSpecificData).toEqual({
+        title: 'My video',
+        visibility: 'unlisted',
+        madeForKids: false,
+        categoryId: '10',
+        playlistId: 'PL1',
+        containsSyntheticMedia: true,
+        firstComment: 'Thanks for watching!',
+      });
+    });
+
+    it('omits unset optional settings (Zernio defaults apply)', async () => {
+      const [pending] = await provider.postPending(
+        'acc-1',
+        'profile-1',
+        postDetails({
+          categoryId: '',
+          playlistId: '',
+          containsSyntheticMedia: false,
+          firstComment: '   ',
+        }),
+        integration
+      );
+      await provider.finalizePost('profile-1', pending.pendingData, integration);
+      const [body] = client.createPost.mock.calls[0] as any;
+      expect(Object.keys(body.platforms[0].platformSpecificData).sort()).toEqual(
+        ['madeForKids', 'title', 'visibility']
+      );
     });
 
     it('adopts the existing post on a 409 duplicate (crash recovery)', async () => {
@@ -445,6 +519,120 @@ describe('YoutubeZernioProvider', () => {
         .catch((e) => e);
       expect(err).toBeInstanceOf(BadBody);
       expect(err.message).toContain('ZERNIO_API_KEY');
+    });
+  });
+
+  describe('playlists', () => {
+    it('lists the channel playlists for the settings picker', async () => {
+      expect(await provider.playlists('profile-1', {}, 'acc-1')).toEqual([
+        { id: 'PL1', name: 'Songs (public)' },
+        { id: 'PL2', name: 'Drafts' },
+      ]);
+      expect(client.listYoutubePlaylists).toHaveBeenCalledWith('acc-1');
+    });
+  });
+
+  describe('analytics', () => {
+    it('maps channel insights to Postiz analytics', async () => {
+      const data: any = await provider.analytics('acc-1', 'profile-1', 30);
+      const [{ accountId, metrics, since, until }] =
+        client.getYoutubeChannelInsights.mock.calls[0] as any;
+      expect(accountId).toBe('acc-1');
+      expect(metrics).toContain('views');
+      expect(since < until).toBe(true);
+      expect(data).toEqual([
+        {
+          label: 'Views',
+          percentageChange: 0,
+          data: [
+            { total: 10, date: '2026-09-01' },
+            { total: 20, date: '2026-09-02' },
+          ],
+        },
+        {
+          label: 'Average View Duration',
+          percentageChange: 0,
+          average: true,
+          data: [{ total: 42, date: '2026-09-01' }],
+        },
+      ]);
+    });
+
+    it('clamps the range to the 89 days Zernio serves', async () => {
+      await provider.analytics('acc-1', 'profile-1', 90);
+      const [{ since, until }] =
+        client.getYoutubeChannelInsights.mock.calls[0] as any;
+      const days =
+        (new Date(until).getTime() - new Date(since).getTime()) / 86400000;
+      expect(days).toBe(89);
+    });
+
+    it('returns no data when Zernio refuses (e.g. 412 missing scope)', async () => {
+      client.getYoutubeChannelInsights.mockRejectedValueOnce(
+        new ZernioApiError('Zernio API 412', 412)
+      );
+      expect(await provider.analytics('acc-1', 'profile-1', 7)).toEqual([]);
+    });
+
+    it('reads post analytics by Zernio post id', async () => {
+      const data = await provider.postAnalytics(
+        'acc-1',
+        'profile-1',
+        'aaaaaaaaaaaaaaaaaaaaaaaa',
+        7
+      );
+      expect(client.getPostAnalytics).toHaveBeenCalledWith(
+        'aaaaaaaaaaaaaaaaaaaaaaaa'
+      );
+      expect(client.listPostAnalytics).not.toHaveBeenCalled();
+      expect(data.map((d) => [d.label, d.data[0].total])).toEqual([
+        ['Views', '123'],
+        ['Likes', '7'],
+        ['Comments', '2'],
+        ['Shares', '1'],
+      ]);
+    });
+
+    it('resolves a legacy YouTube video id to its Zernio post', async () => {
+      await provider.postAnalytics('acc-1', 'profile-1', 'dQw4w9WgXcQ', 7);
+      expect(client.getPostAnalytics).toHaveBeenCalledWith(
+        'abcdefabcdefabcdefabcdef'
+      );
+    });
+
+    it('pages through Zernio posts to resolve an old video id', async () => {
+      const filler = Array.from({ length: 100 }, (_, i) => ({
+        _id: `id${i}`,
+        platformPostUrl: `https://www.youtube.com/watch?v=other${i}`,
+      }));
+      client.listPostAnalytics
+        .mockResolvedValueOnce(filler as any)
+        .mockResolvedValueOnce([
+          {
+            _id: 'bbbbbbbbbbbbbbbbbbbbbbbb',
+            platformPostUrl: 'https://www.youtube.com/watch?v=oldVideo123',
+          },
+        ] as any);
+      await provider.postAnalytics('acc-1', 'profile-1', 'oldVideo123', 7);
+      expect(client.listPostAnalytics).toHaveBeenCalledTimes(2);
+      expect((client.listPostAnalytics.mock.calls[1] as any)[0].page).toBe(2);
+      expect(client.getPostAnalytics).toHaveBeenCalledWith(
+        'bbbbbbbbbbbbbbbbbbbbbbbb'
+      );
+    });
+
+    it('returns no data while Zernio is still syncing', async () => {
+      client.getPostAnalytics.mockResolvedValueOnce({
+        syncStatus: 'pending',
+      } as any);
+      expect(
+        await provider.postAnalytics(
+          'acc-1',
+          'profile-1',
+          'aaaaaaaaaaaaaaaaaaaaaaaa',
+          7
+        )
+      ).toEqual([]);
     });
   });
 });

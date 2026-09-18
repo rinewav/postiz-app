@@ -47,6 +47,10 @@ const publish = async (provider: YoutubeZernioProvider, title: string) => {
           type: 'private',
           selfDeclaredMadeForKids: 'no',
           tags: [],
+          categoryId: '10',
+          playlistId: 'PLmock0001',
+          containsSyntheticMedia: true,
+          firstComment: 'First!',
           thumbnail: { id: 't', path: 'http://localhost:4007/uploads/v/thumb.jpg' },
         },
         media: [{ type: 'video', path: 'http://localhost:4007/uploads/v/clip.mp4' }],
@@ -116,10 +120,34 @@ describe('YouTube (Zernio) against the Zernio mock', () => {
     const post: any = Object.values(state.posts).find(
       (p: any) => p.platforms[0].platformSpecificData.title === 'Integration video'
     );
-    expect(post.platforms[0].platformSpecificData.visibility).toBe('private');
+    expect(post.platforms[0].platformSpecificData).toMatchObject({
+      visibility: 'private',
+      categoryId: '10',
+      playlistId: 'PLmock0001',
+      containsSyntheticMedia: true,
+      firstComment: 'First!',
+    });
+    // the release id is the Zernio post id, and its analytics resolve
+    expect((result as any).postId).toBe(post._id);
+    const stats = await provider.postAnalytics(
+      'mockaccount0000000000001',
+      '',
+      (result as any).postId,
+      7
+    );
+    expect(stats.find((s) => s.label === 'Views')?.data[0].total).toBe('123');
     expect(post.mediaItems[0].thumbnail).toContain('thumb.jpg');
     // the API key never shows up outside the Authorization header
     expect(JSON.stringify(state.requests)).not.toContain('sk_mock');
+  });
+
+  it('lists playlists and channel analytics', async () => {
+    const provider = new YoutubeZernioProvider();
+    const playlists = await provider.playlists('', {}, 'mockaccount0000000000001');
+    expect(playlists[0]).toEqual({ id: 'PLmock0001', name: 'Mock Playlist (public)' });
+    const analytics = await provider.analytics('mockaccount0000000000001', '', 7);
+    expect(analytics.map((a) => a.label)).toContain('Views');
+    expect(analytics[0].data.length).toBe(8);
   });
 
   it('retries a transient failure and then publishes', async () => {
