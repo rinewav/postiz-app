@@ -36,6 +36,32 @@ services:
       ZERNIO_MAX_RETRIES: ${ZERNIO_MAX_RETRIES:-2}
       # e.g. "youtube" to hide the Google-Cloud-based YouTube provider
       HIDDEN_PROVIDERS: ${HIDDEN_PROVIDERS:-}
+    # backend/orchestrator hang at boot if Temporal isn't ready yet and never
+    # recover on their own: wait for it.
+    depends_on:
+      temporal:
+        condition: service_healthy
+    # Makes a stuck boot visible in `docker compose ps` (unhealthy): recover with
+    # `docker compose restart postiz`. Checks the backend and the orchestrator.
+    healthcheck:
+      test: ['CMD', 'node', '-e', 'Promise.all([fetch("http://127.0.0.1:3000/"),fetch("http://127.0.0.1:3002/health/status")]).then((r)=>process.exit(r.every((x)=>x.ok)?0:1)).catch(()=>process.exit(1))']
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+
+  # Upstream starts temporal without waiting for its database, so on a cold
+  # start it can exit ("no usable database connection") and stay down.
+  temporal:
+    restart: on-failure
+    healthcheck:
+      # serving AND the default namespace + its search attributes are ready
+      # (Postiz reads/registers search attributes at boot and hangs otherwise)
+      test: ['CMD-SHELL', 'A=$$(hostname -i):7233; temporal operator namespace describe -n default --address $$A >/dev/null 2>&1 && temporal operator search-attribute list -n default --address $$A >/dev/null 2>&1']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
 
   # Local Zernio API mock for end-to-end tests, only started with
   # `docker compose --profile zernio-mock up -d` (then set
