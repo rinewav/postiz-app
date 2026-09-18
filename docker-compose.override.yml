@@ -37,3 +37,22 @@ services:
       # e.g. "youtube" to hide the Google-Cloud-based YouTube provider
       HIDDEN_PROVIDERS: ${HIDDEN_PROVIDERS:-}
 
+  # Local Zernio API mock for end-to-end tests, only started with
+  # `docker compose --profile zernio-mock up -d` (then set
+  # ZERNIO_API_URL=http://zernio-mock:4010/api and ZERNIO_API_KEY=sk_mock).
+  zernio-mock:
+    profiles: ['zernio-mock']
+    image: node:22.20-bookworm-slim
+    container_name: zernio-mock
+    command: ['node', '/mock/server.mjs']
+    environment:
+      PORT: '4010'
+      MOCK_API_KEY: sk_mock
+      PUBLIC_URL: http://localhost:4010
+      INTERNAL_URL: http://zernio-mock:4010
+    volumes:
+      - ./tools/zernio-mock:/mock:ro
+    ports:
+      - '4010:4010'
+    networks:
+      - postiz-network
