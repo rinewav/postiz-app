@@ -1,0 +1,101 @@
+# Rebases the fork's patch commits (Zernio integration) onto the latest
+# upstream Postiz, then builds and tests the result.
+# - success: the rebased tree is pushed to the `sync/upstream` branch; if the
+#   repository variable AUTO_UPDATE_MAIN is 'true', main is fast-updated too
+#   (force-with-lease), otherwise update main yourself (see README.zernio.md)
+# - rebase conflict / failing build or tests: the job fails and an issue is
+#   opened (or updated) so nothing broken reaches main
+name: Zernio upstream sync
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: zernio-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        id: fetch
+        run: |
+          git remote add upstream https://github.com/gitroomhq/postiz-app.git
+          git fetch upstream main --tags
+          behind=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          echo "main is $behind commit(s) behind upstream/main"
+
+      - name: Rebase patch commits onto upstream/main
+        id: rebase
+        if: steps.fetch.outputs.behind != '0' || github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rebase upstream/main
+
+      - uses: actions/setup-node@v4
+        if: steps.rebase.outcome == 'success'
+        with:
+          node-version: '22.12.0'
+
+      - uses: pnpm/action-setup@v4
+        if: steps.rebase.outcome == 'success'
+        with:
+          version: 10.6.1
+
+      - name: Install
+        if: steps.rebase.outcome == 'success'
+        run: pnpm install --frozen-lockfile
+
+      - name: Zernio tests
+        if: steps.rebase.outcome == 'success'
+        run: pnpm exec jest -c libraries/nestjs-libraries/src/integrations/zernio/jest.config.js
+
+      - name: Build backend, orchestrator and frontend
+        if: steps.rebase.outcome == 'success'
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm run build
+
+      - name: Push rebased branch
+        if: steps.rebase.outcome == 'success'
+        run: |
+          git push --force origin HEAD:refs/heads/sync/upstream
+          if [ "${{ vars.AUTO_UPDATE_MAIN }}" = "true" ]; then
+            git push --force-with-lease=main:origin/main origin HEAD:main
+          fi
+          {
+            echo "### Upstream sync OK"
+            echo "Rebased onto upstream/main $(git rev-parse --short upstream/main)."
+            echo "Branch: \`sync/upstream\`. Patch commits:"
+            git log --oneline upstream/main..HEAD | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git rebase --abort 2>/dev/null || true
+          title="Upstream sync failed"
+          body="The scheduled rebase of the Zernio patch onto upstream/main failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Run tools/sync-upstream.sh locally and resolve it."
+          existing=$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
