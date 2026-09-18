@@ -13,5 +13,6 @@ export const continueProviderList = {
   'linkedin-page': LinkedinContinue,
   gmb: GmbContinue,
   youtube: YoutubeContinue,
+  'youtube-zernio': YoutubeContinue,
   tumblr: TumblrContinue,
 };

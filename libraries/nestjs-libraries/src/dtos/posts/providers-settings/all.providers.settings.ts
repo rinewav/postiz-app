@@ -31,6 +31,7 @@ export type AllProvidersSettings =
   | ProviderExtension<'reddit', RedditSettingsDto>
   | ProviderExtension<'lemmy', LemmySettingsDto>
   | ProviderExtension<'youtube', YoutubeSettingsDto>
+  | ProviderExtension<'youtube-zernio', YoutubeSettingsDto>
   | ProviderExtension<'pinterest', PinterestSettingsDto>
   | ProviderExtension<'dribbble', DribbbleDto>
   | ProviderExtension<'tiktok', TikTokDto>
@@ -71,6 +72,7 @@ export const allProviders = (setEmpty?: any) => {
     { value: RedditSettingsDto, name: 'reddit' },
     { value: LemmySettingsDto, name: 'lemmy' },
     { value: YoutubeSettingsDto, name: 'youtube' },
+    { value: YoutubeSettingsDto, name: 'youtube-zernio' },
     { value: PinterestSettingsDto, name: 'pinterest' },
     { value: DribbbleDto, name: 'dribbble' },
     { value: TikTokDto, name: 'tiktok' },
