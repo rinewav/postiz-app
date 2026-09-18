@@ -25,6 +25,7 @@ const allowedIntegrations = [
   'tiktok',
   'tiktok-business',
   'youtube',
+  'youtube-zernio',
   'gmb',
   'pinterest',
   'threads',
@@ -84,6 +85,7 @@ export const PlatformAnalytics = () => {
         'linkedin-page',
         'pinterest',
         'youtube',
+        'youtube-zernio',
         'threads',
         'gmb',
         'x',
@@ -104,6 +106,7 @@ export const PlatformAnalytics = () => {
         'linkedin-page',
         'pinterest',
         'youtube',
+        'youtube-zernio',
         'threads',
         'gmb',
         'x',
@@ -117,7 +120,7 @@ export const PlatformAnalytics = () => {
       });
     }
     if (
-      ['facebook', 'linkedin-page', 'pinterest', 'youtube', 'x', 'gmb'].indexOf(
+      ['facebook', 'linkedin-page', 'pinterest', 'youtube', 'youtube-zernio', 'x', 'gmb'].indexOf(
         currentIntegration.identifier
       ) !== -1
     ) {

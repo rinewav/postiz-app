@@ -109,6 +109,31 @@ export interface ZernioPlaylist {
   itemCount?: number;
 }
 
+// Shared "account insights" envelope (metricType=time_series)
+export interface ZernioInsights {
+  dateRange?: { since: string; until: string };
+  metrics: Record<
+    string,
+    { total: number; values?: Array<{ date: string; value: number }> }
+  >;
+  unavailableMetrics?: string[];
+}
+
+export interface ZernioPostAnalytics {
+  _id?: string;
+  postId?: string;
+  platform?: string;
+  platformPostUrl?: string | null;
+  syncStatus?: 'synced' | 'pending' | 'partial' | 'unavailable';
+  analytics?: {
+    views?: number;
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    impressions?: number;
+  };
+}
+
 export class ZernioApiError extends Error {
   constructor(
     message: string,
@@ -391,6 +416,58 @@ export class ZernioClient {
       `/v1/accounts/${encodeURIComponent(accountId)}/youtube-playlists`
     );
     return data.playlists || [];
+  }
+
+  // --- analytics ------------------------------------------------------------
+
+  // Channel metrics from the YouTube Analytics API (2-3 day delay, max 89 days)
+  async getYoutubeChannelInsights(params: {
+    accountId: string;
+    since: string;
+    until: string;
+    metrics: string[];
+  }): Promise<ZernioInsights> {
+    const { data } = await this.request<ZernioInsights>(
+      'GET',
+      '/v1/analytics/youtube/channel-insights',
+      {
+        query: {
+          accountId: params.accountId,
+          since: params.since,
+          until: params.until,
+          metrics: params.metrics.join(','),
+          metricType: 'time_series',
+        },
+      }
+    );
+    return data;
+  }
+
+  // Analytics of one Zernio post (202 = still syncing from the platform)
+  async getPostAnalytics(postId: string): Promise<ZernioPostAnalytics> {
+    const { data } = await this.request<ZernioPostAnalytics>(
+      'GET',
+      '/v1/analytics',
+      { query: { postId } }
+    );
+    return data;
+  }
+
+  // Zernio posts of an account, used to map a YouTube video id back to its
+  // Zernio post id
+  async listPostAnalytics(params: {
+    accountId: string;
+    platform: string;
+    fromDate?: string;
+    limit?: number;
+    page?: number;
+  }): Promise<ZernioPostAnalytics[]> {
+    const { data } = await this.request<{ posts: ZernioPostAnalytics[] }>(
+      'GET',
+      '/v1/analytics',
+      { query: params }
+    );
+    return data.posts || [];
   }
 
   async retryPost(postId: string): Promise<ZernioPost | undefined> {
