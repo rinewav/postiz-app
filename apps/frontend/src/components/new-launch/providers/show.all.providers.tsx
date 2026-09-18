@@ -87,6 +87,10 @@ export const Providers = [
     component: YoutubeProvider,
   },
   {
+    identifier: 'youtube-zernio',
+    component: YoutubeProvider,
+  },
+  {
     identifier: 'tiktok',
     component: TiktokProvider,
   },
