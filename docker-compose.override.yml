@@ -41,12 +41,15 @@ services:
     depends_on:
       temporal:
         condition: service_healthy
-    # Makes a stuck boot visible in `docker compose ps` (unhealthy): recover with
-    # `docker compose restart postiz`. Checks the backend and the orchestrator.
+    # Checks the backend and the orchestrator: a stuck boot shows as unhealthy in
+    # `docker compose ps`, and after 10 failed checks in a row (~5 min) the script
+    # restarts the container (same as `docker compose restart postiz`).
+    volumes:
+      - ./tools/postiz-healthcheck.sh:/usr/local/bin/postiz-healthcheck.sh:ro
     healthcheck:
-      test: ['CMD', 'node', '-e', 'Promise.all([fetch("http://127.0.0.1:3000/"),fetch("http://127.0.0.1:3002/health/status")]).then((r)=>process.exit(r.every((x)=>x.ok)?0:1)).catch(()=>process.exit(1))']
+      test: ['CMD', 'sh', '/usr/local/bin/postiz-healthcheck.sh']
       interval: 30s
-      timeout: 15s
+      timeout: 30s
       retries: 3
       start_period: 120s
 

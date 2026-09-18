@@ -37,6 +37,7 @@ OAuth 接続とアップロードは Zernio 側で行われます。
 | 1行追加 | `apps/frontend/src/components/new-launch/providers/continue-provider/list.tsx` | 接続時のチャンネル選択に既存 YouTube 画面を割り当て |
 | 3行追加 | `.dockerignore` | `.env` を build context に入れない（secret 混入防止） |
 | 新規 | `docker-compose.override.yml`, `.env.docker.example` | 自前 image の build と環境変数（upstream の compose は無変更） |
+| 新規 | `tools/postiz-healthcheck.sh` | postiz コンテナの healthcheck（backend / orchestrator の確認と、起動ハング時の自動再起動） |
 | 新規 | `libraries/nestjs-libraries/src/integrations/zernio/*.spec.ts`, `jest.config.js`, `tools/zernio-mock/` | テストと Zernio mock server |
 | 新規 | `tools/sync-upstream.sh`, `.github/workflows/zernio-upstream-sync.yml` | upstream 追従 |
 
@@ -296,7 +297,7 @@ mock はタイトルに `[fail-once]`（1 回失敗→retry で成功）、`[fai
 | 「Video too long」系 | 未確認チャンネルの 15 分制限。youtube.com/verify |
 | サムネイルが反映されない | チャンネル未確認、2MB 超、または Shorts |
 | `Set JWT_SECRET in .env` で compose が止まる | `.env` がない / `JWT_SECRET` 空 |
-| `docker compose ps` で postiz が `unhealthy`、画面が 502 | 起動直後に backend / orchestrator が応答しないまま止まることがある（検証では cold start 31 回中 4 回、upstream image では 18 回中 0 回。原因は未特定）。`docker compose restart postiz` で復旧 |
+| `docker compose ps` で postiz が `unhealthy`、画面が 502 | 起動直後に backend / orchestrator が応答しないまま止まることがある（検証では cold start 31 回中 4 回、upstream image では 18 回中 0 回。原因は未特定）。healthcheck（`tools/postiz-healthcheck.sh`）が 10 回連続（約 5 分）失敗するとコンテナを自動で再起動するので、数分待てば復旧する。すぐ直したいときは `docker compose restart postiz`。経過は `docker inspect postiz --format '{{json .State.Health.Log}}'` |
 | temporal が `Exited (1)`（`no usable database connection`） | upstream compose は DB 起動を待たないため。override で `restart: on-failure` と healthcheck を追加済み。postiz は temporal が準備完了してから起動する |
 
 ---
